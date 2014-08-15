@@ -23,6 +23,7 @@ class BaseResource(object):
 
     _strs = []
     _ints = []
+    _floats = []
     _dates = []
     _bools = []
     _dicts = []
@@ -45,7 +46,7 @@ class BaseResource(object):
             setattr(self, attr, None)
 
     def _keys(self):
-        return self._strs + self._ints + self._dates + self._bools + list(self._map.keys())
+        return self._strs + self._ints + self._floats + self._dates + self._bools + list(self._map.keys())
 
     @property
     def _id(self):
@@ -69,7 +70,7 @@ class BaseResource(object):
 
     def dict(self):
         d = dict()
-        for k in self.keys():
+        for k in self._keys():
             d[k] = self.__dict__.get(k)
 
         return d
@@ -86,6 +87,7 @@ class BaseResource(object):
             in_dict=d,
             str_keys=cls._strs,
             int_keys=cls._ints,
+            float_keys=cls._floats,
             date_keys=cls._dates,
             bool_keys=cls._bools,
             dict_keys=cls._dicts,

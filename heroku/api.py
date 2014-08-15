@@ -18,6 +18,7 @@ from .models.key import Key
 from .models.configvars import ConfigVars
 from .models.logsession import LogSession
 from .models.oauth import OAuthClient, OAuthAuthorization, OAuthToken
+from .models.pgbackups import Backup, Transfer
 from .rendezvous import Rendezvous
 from .structures import KeyedListResource, SSHKeyListResource
 from .models.account.feature import AccountFeature
@@ -25,6 +26,7 @@ from requests.exceptions import HTTPError
 from pprint import pprint # noqa
 import requests
 import sys
+from urlparse import urlparse
 
 if sys.version_info > (3, 0):
     from urllib.parse import quote
@@ -135,6 +137,9 @@ class HerokuCore(object):
 
         return headers
 
+    def _request(self, method, url, params=None, data=None, headers=None):
+        return self._session.request(method, url, params=params, data=data, headers=headers)
+
     def _http_resource(self, method, resource, params=None, data=None, legacy=False, order_by=None, limit=None, valrange=None, sort=None):
         """Makes an HTTP request."""
 
@@ -147,7 +152,7 @@ class HerokuCore(object):
 
         #print "\n\n\n\n"
         #print url
-        r = self._session.request(method, url, params=params, data=data, headers=headers)
+        r = self._request(method, url, params=params, data=data, headers=headers)
 
         if 'ratelimit-remaining' in r.headers:
             self._ratelimit_remaining = r.headers['ratelimit-remaining']
@@ -488,6 +493,115 @@ class Heroku(HerokuCore):
     @property
     def last_request_id(self):
         return self._last_request_id
+
+
+class Pgbackups(HerokuCore):
+    """The main Pgbackups class."""
+
+    def __init__(self):
+        super(Pgbackups, self).__init__()
+        self._base_url = None
+        self._username = None
+        self._password = None
+
+    def __repr__(self):
+        return '<heroku-pgbackups-client at 0x%x>' % (id(self))
+
+    def set_url(self, pgbackups_url):
+        self._parse_url(pgbackups_url)
+
+    def backups(self, **kwargs):
+        return self._get_resources('backups', Backup, **kwargs)
+
+    def backup(self, name):
+        return self._get_resource(('backups', name), Backup)
+
+    def latest_backup(self):
+        return self._get_resource('latest_backup', Backup)
+
+    def transfers(self, **kwargs):
+        return self._get_resources('transfers', Transfer, **kwargs)
+
+    def transfer(self, id):
+        return self._get_resource(('transfers', str(id)), Transfer)
+
+    def create_transfer(self, from_url, from_name, to_url, to_name, **kwargs):
+        """
+        :param from_url: source database url, e.g. 'postgres://user:pwd@host:port/db'
+        :param from_name: source database name, e.g. 'DATABASE_URL'
+                          or 'EXTERNAL BACKUP' to restore from a public capture url
+        :param to_url: dest database url, e.g. 'postgres://user:pwd@host:port/db'
+                       or None if creating a new capture
+        :param to_name: dest database name, e.g. 'HEROKU_POSTGRESQL_COLOR_URL'
+                        or 'BACKUP' to create a new capture
+        :param kwargs: expire=True will delete the oldest backup if at the plan limit
+        :return: the Transfer instance
+        """
+        payload = {
+            'from_url': from_url,
+            'from_name': from_name,
+            'to_url': to_url,
+            'to_name': to_name
+        }
+
+        payload.update(kwargs)
+
+        r = self._http_resource(
+            method='POST',
+            resource=('transfers',),
+            data=payload
+        )
+        r.raise_for_status()
+        item = self._resource_deserialize(r.content.decode("utf-8"))
+
+        if item.get('errors'):
+            raise RuntimeError("Can't create transfer: {0}".format(item['errors']))
+
+        return Transfer.new_from_dict(item, h=self)
+
+    def capture(self, from_url, from_name, expire=True):
+        return self.create_transfer(from_url, from_name, None, "BACKUP", expire=expire)
+
+    def delete(self, name):
+        backup = self.backup(name)
+        if backup and backup.destroyed_at:
+            raise ValueError('Backup {0} already destroyed at {1}'.format(name, backup.destroyed_at))
+
+        r = self._http_resource(
+            method='DELETE',
+            resource=('backups', name)
+        )
+        r.raise_for_status()
+        return r.ok
+
+    def destroy(self, name):
+        return self.delete(name)
+
+    def _parse_url(self, pgbackups_url):
+        if not pgbackups_url:
+            raise ValueError("Param 'pgbackups_url' is required; check heroku config var PGBACKUPS_URL")
+
+        uri = urlparse(pgbackups_url)
+        if not (uri.scheme and uri.hostname and uri.username and uri.password):
+            raise ValueError("Bad 'pgbackups_url': {0}".format(pgbackups_url))
+
+        self._base_url = '{0}://{1}'.format(uri.scheme, uri.hostname)
+        self._username = uri.username
+        self._password = uri.password
+        if uri.port:
+            self._base_url += ":" + uri.port
+        if uri.path:
+            self._base_url += uri.path
+
+    def _url_for(self, *args):
+        args = map(str, args)
+        return '/'.join([self._base_url] + list(args))
+
+    def _request(self, method, url, params=None, data=None, headers=None):
+        # todo: support sessions
+        response = requests.request(method, url, params=params, data=data, headers=headers, auth=(self._username, self._password))
+        # pprint(response.json())
+        return response
 
 
 class ResponseError(ValueError):

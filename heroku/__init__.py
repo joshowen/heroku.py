@@ -24,4 +24,4 @@ __version__ = '0.1.3'
 
 # Module namespace.
 
-from .core import from_key
+from .core import from_key, pg_backups

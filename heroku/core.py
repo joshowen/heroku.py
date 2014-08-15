@@ -7,7 +7,7 @@ heroku.core
 This module provides the base entrypoint for heroku.py.
 """
 
-from .api import Heroku
+from .api import Heroku, Pgbackups
 import requests
 
 
@@ -25,3 +25,12 @@ def from_key(api_key, session=None, **kwargs):
     h.authenticate(api_key)
 
     return h
+
+def pg_backups(pgbackups_url, **kwargs):
+    """Returns a Heroku Pgbackups client instance, via PGBACKUPS_URL."""
+    pgbc = Pgbackups(**kwargs)
+
+    # set url.
+    pgbc.set_url(pgbackups_url)
+
+    return pgbc

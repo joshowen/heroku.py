@@ -38,6 +38,7 @@ def to_python(obj,
     object_map=None,
     bool_keys=None,
     dict_keys=None,
+    float_keys=None,
     **kwargs):
     """Extends a given object for API Consumption.
 
@@ -72,6 +73,11 @@ def to_python(obj,
         for in_key in int_keys:
             if (in_dict is not None) and (in_dict.get(in_key) is not None):
                 d[in_key] = int(in_dict.get(in_key))
+
+    if float_keys:
+        for in_key in float_keys:
+            if (in_dict is not None) and (in_dict.get(in_key) is not None):
+                d[in_key] = float(in_dict.get(in_key))
 
     if bool_keys:
         for in_key in bool_keys:

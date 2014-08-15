@@ -163,3 +163,51 @@ heroku_conn = heroku.from_key(HEROKU_API_KEY)
 #app.delete()
 
 print heroku_conn._last_request_id
+
+# -----------------
+# pgbackup examples
+# -----------------
+#
+# pgb_client = heroku.pg_backups(os.getenv("PGBACKUPS_URL"))
+
+# # most recent backup
+# latest = pgb_client.latest_backup()
+# pprint([latest.id, latest.name, latest.from_name, latest.created_at, latest.public_url])
+
+# # list backups
+# backups = pgb_client.backups()
+# for backup in backups:
+#     print backup
+#
+# # get backup by name
+# backups = pgb_client.backups()
+# one_backup = backups[0]
+# backup = pgb_client.backup(one_backup.name)
+# pprint(backup)
+#
+# # list transfers - similar to backups, but no public url
+# transfers = pgb_client.transfers(order_by='created_at')
+# transfer = transfers[0]
+# pprint(transfer.dict())
+
+# # create capture, i.e. back up the database to s3 - only run once!
+# if os.environ.get('DATABASE_URL'):
+#     transfer = pgb_client.capture(os.environ.get('DATABASE_URL'), 'DATABASE_URL')
+#     pprint(transfer)
+#     pprint(transfer.dict())
+
+# # poll for transfer completion
+# import time
+# transfer = pgb_client.transfer(21308792)
+# while transfer.progress != "upload done":
+#     time.sleep(10)
+#     transfer = pgb_client.transfer(21308792)
+#     print "Transfer: {}, {}, {}s".format(transfer.progress, transfer.size, transfer.duration)
+# pprint(transfer.dict())
+
+# # get the public url of a capture transfer - use transfer.name -> backup.name
+# pprint(pgb_client.backup(transfer.name).public_url)
+
+# # destroy (aka delete) a backup - warning, this is permanent
+# pgb_client.destroy(pgb_client.latest_backup().name)
+# pgb_client.delete(pgb_client.latest_backup().name)
