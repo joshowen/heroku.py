@@ -69,6 +69,9 @@ class ConfigVars(object):
     def to_dict(self):
         return self.data
 
+    def get(self, key, default=None):
+        return self.to_dict().get(key, default)
+
     @classmethod
     def new_from_dict(cls, d, h=None, **kwargs):
         # Override normal operation because of crazy api.

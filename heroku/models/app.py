@@ -3,6 +3,7 @@ from ..rendezvous import Rendezvous
 from ..structures import DynoListResource
 
 from .addon import Addon
+from .attachment import Attachment
 from .collaborator import Collaborator
 from .configvars import ConfigVars
 from .domain import Domain
@@ -40,11 +41,20 @@ class App(BaseResource):
 
     def addons(self, **kwargs):
         """
-        Returns a list of your apps as app objects.
+        Returns a list of your addons as Addon objects.
         """
         return self._h._get_resources(
             resource=('apps', self.name, 'addons'),
             obj=Addon, app=self, **kwargs
+        )
+
+    def attachments(self, **kwargs):
+        """
+        Returns a list of attachments (e.g. databases) as Attachment objects.
+        """
+        return self._h._get_resources(
+            resource=('apps', self.name, 'attachments'),
+            obj=Attachment, app=self, legacy=True, **kwargs
         )
 
     def delete(self):

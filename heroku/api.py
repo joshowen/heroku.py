@@ -19,14 +19,16 @@ from .models.configvars import ConfigVars
 from .models.logsession import LogSession
 from .models.oauth import OAuthClient, OAuthAuthorization, OAuthToken
 from .models.pgbackups import Backup, Transfer
+from .models.postgres import HerokuPostgresql
 from .rendezvous import Rendezvous
 from .structures import KeyedListResource, SSHKeyListResource
 from .models.account.feature import AccountFeature
 from requests.exceptions import HTTPError
 from pprint import pprint # noqa
+from urlparse import urlparse
 import requests
 import sys
-from urlparse import urlparse
+import re
 
 if sys.version_info > (3, 0):
     from urllib.parse import quote
@@ -192,7 +194,13 @@ class HerokuCore(object):
 
     def _process_item(self, item, obj, **kwargs):
 
-        return obj.new_from_dict(item, h=self, **kwargs)
+        item = obj.new_from_dict(item, h=self, **kwargs)
+
+        # do custom post-processing if model wants to
+        if hasattr(obj, "post_process_item") and callable(obj.post_process_item):
+            item.post_process_item()
+
+        return item
 
     def _get_resources(self, resource, obj, params=None, map=None, legacy=None, order_by=None, limit=None, valrange=None, sort=None, **kwargs):
         """Returns a list of mapped objects from an HTTP resource."""
@@ -215,7 +223,7 @@ class HerokuCore(object):
 
         return items
 
-    def _process_items(self, d_items, obj, map=None, **kwargs):
+    def _process_items(self, d_items, obj, _map=None, **kwargs):
 
         if not isinstance(d_items, list):
             print "Warning, Response for '{0}' was of type {1} - I was expecting a 'list'. This could mean the api has changed its response type for this request.".format(obj, type(d_items))
@@ -225,10 +233,14 @@ class HerokuCore(object):
 
         items = [obj.new_from_dict(item, h=self, **kwargs) for item in d_items]
 
-        if map is None:
-            map = KeyedListResource
+        # do custom post-processing if model wants to
+        if hasattr(obj, "post_process_item") and callable(obj.post_process_item):
+            map(obj.post_process_item, items)
 
-        list_resource = map(items=items)
+        if _map is None:
+            _map = KeyedListResource
+
+        list_resource = _map(items=items)
         list_resource._h = self
         list_resource._obj = obj
         list_resource._kwargs = kwargs
@@ -565,7 +577,7 @@ class Pgbackups(HerokuCore):
     def delete(self, name):
         backup = self.backup(name)
         if backup and backup.destroyed_at:
-            raise ValueError('Backup {0} already destroyed at {1}'.format(name, backup.destroyed_at))
+            raise ResponseError('Backup {0} already destroyed at {1}'.format(name, backup.destroyed_at))
 
         r = self._http_resource(
             method='DELETE',
@@ -579,11 +591,11 @@ class Pgbackups(HerokuCore):
 
     def _parse_url(self, pgbackups_url):
         if not pgbackups_url:
-            raise ValueError("Param 'pgbackups_url' is required; check heroku config var PGBACKUPS_URL")
+            raise ResponseError("Param 'pgbackups_url' is required; check heroku config var PGBACKUPS_URL")
 
         uri = urlparse(pgbackups_url)
         if not (uri.scheme and uri.hostname and uri.username and uri.password):
-            raise ValueError("Bad 'pgbackups_url': {0}".format(pgbackups_url))
+            raise ResponseError("Bad 'pgbackups_url': {0}".format(pgbackups_url))
 
         self._base_url = '{0}://{1}'.format(uri.scheme, uri.hostname)
         self._username = uri.username
@@ -598,11 +610,101 @@ class Pgbackups(HerokuCore):
         return '/'.join([self._base_url] + list(args))
 
     def _request(self, method, url, params=None, data=None, headers=None):
-        # todo: support sessions
-        response = requests.request(method, url, params=params, data=data, headers=headers, auth=(self._username, self._password))
-        # pprint(response.json())
-        return response
+        return requests.request(method, url, params=params, data=data, headers=headers, auth=(self._username, self._password))
+
+
+class HerokuPostgres(HerokuCore):
+    """The main Heroku Postgres class."""
+
+    def __init__(self, heroku):
+        super(HerokuPostgres, self).__init__()
+
+        # capture heroku client as well, needed for some operations
+        self._heroku = heroku
+        self._heroku_postgres_url = None
+
+        # instance cache
+        self._app = None
+        self._db_attachments = None
+        self._databases = None
+
+    def __repr__(self):
+        return '<heroku-postgres-client at 0x%x>' % (id(self))
+
+    def databases(self, app_id_or_name):
+        """
+        Get all databases attached to the app.
+
+        :param app_id_or_name: the app that the databases are attached to
+        :return: dict of attachment name to database instance
+        """
+        if self._databases:
+            return self._databases
+
+        # cached gets
+        app = self._get_app(app_id_or_name)
+        if not self._db_attachments:
+            self._db_attachments = {att.config_var: att
+                                    for att in app.attachments() if att.addon == 'heroku-postgresql'}
+
+        self._databases = {attachment_name: self._attached_database(attachment_name, att.resource_name)
+                           for attachment_name, att in self._db_attachments.iteritems()}
+
+        return self._databases
+
+    def database(self, app_id_or_name, attachment_name=None):
+        """
+        Get a single database attached to the app with the provided attachment name, or default db.
+
+        :param app_id_or_name: the app that the database is attached to
+        :param attachment_name: None for primary postgres db via DATABASE_URL,
+                                short name (e.g. BLUE),
+                                or long name (e.g. HEROKU_POSTGRESQL_BLUE_URL
+        :return: HerokuPostgresql object
+        """
+        databases = self.databases(app_id_or_name)
+
+        if attachment_name is None:
+            primary_url = self._get_app(app_id_or_name).config().get("DATABASE_URL")
+            for db in databases.itervalues():
+                if db.resource_url == primary_url:
+                    return db
+            raise ResponseError("Could not find primary database. Is DATABASE_URL set correctly?")
+
+        if attachment_name in databases:
+            return databases[attachment_name]
+        else:
+            for db_name in databases.keys():
+                if re.search(attachment_name, db_name):
+                    return databases[db_name]
+
+    def _attached_database(self, attachment_name, resource_name):
+        db = self._get_resource((resource_name,), HerokuPostgresql)
+        db.attachment_name = attachment_name
+        db.resource_name = resource_name
+        return db
+
+    def _get_app(self, app_id_or_name):
+        if not self._app:
+            self._app = self._heroku.app(app_id_or_name)
+        return self._app
+
+    def _set_url(self, heroku_postgres_host):
+        if heroku_postgres_host is None:
+            self._heroku_postgres_url = "https://postgres-api.heroku.com/client/v11/databases"
+        else:
+            self._heroku_postgres_url = "https://" + heroku_postgres_host + "/client/v11/databases"
+
+    def _url_for(self, *args):
+        args = map(str, args)
+        return '/'.join([self._heroku_postgres_url] + list(args))
+
+    def _request(self, method, url, params=None, data=None, headers=None):
+        return requests.request(method, url, params=params, data=data, headers=headers, auth=('', self._api_key))
 
 
 class ResponseError(ValueError):
     """The API Response was unexpected."""
+
+class AuthenticationError(ValueError):
+    """Can't authenticate or not authenticated for action."""

@@ -38,6 +38,7 @@ def to_python(obj,
     object_map=None,
     bool_keys=None,
     dict_keys=None,
+    list_keys=None,
     float_keys=None,
     **kwargs):
     """Extends a given object for API Consumption.
@@ -45,7 +46,11 @@ def to_python(obj,
     :param obj: Object to extend.
     :param in_dict: Dict to extract data from.
     :param string_keys: List of in_dict keys that will be extracted as strings.
-    :param date_keys: List of in_dict keys that will be extrad as datetimes.
+    :param date_keys: List of in_dict keys that will be extracted as datetimes.
+    :param dict_keys: List of in_dict keys that will be extracted as dicts.
+    :param int_keys: List of in_dict keys that will be extracted as ints.
+    :param float_keys: List of in_dict keys that will be extracted as floats.
+    :param list_keys: List of in_dict keys that will be extracted as lists.
     :param object_map: Dict of {key, obj} map, for nested object results.
     """
 
@@ -88,6 +93,11 @@ def to_python(obj,
         for in_key in dict_keys:
             if in_dict.get(in_key) is not None:
                 d[in_key] = dict(in_dict.get(in_key))
+
+    if list_keys:
+        for in_key in list_keys:
+            if in_dict.get(in_key) is not None:
+                d[in_key] = list(in_dict.get(in_key))
 
     if object_map:
         for (k, v) in object_map.items():

@@ -169,6 +169,7 @@ print heroku_conn._last_request_id
 # -----------------
 #
 # pgb_client = heroku.pg_backups(os.getenv("PGBACKUPS_URL"))
+# print pgb_client
 
 # # most recent backup
 # latest = pgb_client.latest_backup()
@@ -211,3 +212,41 @@ print heroku_conn._last_request_id
 # # destroy (aka delete) a backup - warning, this is permanent
 # pgb_client.destroy(pgb_client.latest_backup().name)
 # pgb_client.delete(pgb_client.latest_backup().name)
+
+# -----------------
+# postgres examples
+# -----------------
+#
+# hpg = heroku.postgres(HEROKU_API_KEY)
+# print hpg
+
+# # get default db (DATABASE_URL)
+# pprint(hpg.database("myapp-dev"))
+# # get db via full attachment name
+# pprint(hpg.database("myapp-dev", "HEROKU_POSTGRESQL_PURPLE_URL"))
+# # via short attachment name
+# pprint(hpg.database("myapp-prod", "PURPLE"))
+
+# # get db info list
+# pprint(hpg.database("myapp-dev").info)
+
+# # get db metrics
+# pprint(hpg.database("myapp-dev").metrics())
+
+# # poll for waiting status (like after upgrade or attach)
+# import time
+# while hpg.database("myapp-dev").is_waiting:
+#     time.sleep(10)
+
+# # get db maintenance info - does it need maintenance?
+# pprint(hpg.database("myapp-dev").maintenance().message)
+
+# # reset a db - warning, this is permanent
+# db = hpg.database("myapp-dev")
+# db.reset()
+
+# # get running processes
+# pprint(hpg.database("myapp-dev").ps())
+
+# # exec ad-hoc sql
+# pprint(hpg.database("myapp-dev").exec_sql("select * from table limit 10;"))
